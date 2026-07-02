@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MultiMind</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧠</text></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <h1>MultiMind</h1>
+      <button id="new-chat-btn" type="button">+ New chat</button>
+    </div>
+    <ul id="conversation-list" class="conversation-list"></ul>
+  </aside>
+
+  <main class="chat">
+    <div id="messages" class="messages">
+      <div class="empty-state" id="empty-state">
+        <h2>Start a conversation</h2>
+        <p>Pick a provider below and send a message. You can switch providers on every message — the whole conversation history is shared.</p>
+      </div>
+    </div>
+
+    <form id="chat-form" class="composer">
+      <select id="provider-select" title="Provider for the next message">
+        <option value="auto" selected>Auto</option>
+        <option value="openai">OpenAI</option>
+        <option value="claude">Claude</option>
+        <option value="gemini">Gemini</option>
+        <option value="grok">Grok</option>
+        <option value="deepseek">DeepSeek</option>
+        <option value="compare">Compare (all)</option>
+      </select>
+      <textarea id="message-input" rows="1" placeholder="Send a message…" required></textarea>
+      <button id="send-btn" type="submit">Send</button>
+    </form>
+  </main>
+
+  <script src="api.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
