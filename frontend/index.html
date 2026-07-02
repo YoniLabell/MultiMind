@@ -9,6 +9,15 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <div id="auth-overlay" class="auth-overlay hidden">
+    <div class="auth-card">
+      <div class="brand brand-lg">Multi<em>Mind</em></div>
+      <p class="auth-tagline">One conversation, five minds.<br>Sign in to keep your chats — only you can see them.</p>
+      <div id="google-btn" class="google-btn"></div>
+      <p id="auth-error" class="auth-error"></p>
+    </div>
+  </div>
+
   <header class="topbar">
     <button id="menu-btn" type="button" aria-label="Open conversations">
       <span></span><span></span><span></span>
@@ -25,7 +34,7 @@
       <button id="new-chat-btn" type="button">+ New chat</button>
     </div>
     <ul id="conversation-list" class="conversation-list"></ul>
-    <div class="sidebar-footer">One history · five minds</div>
+    <div class="sidebar-footer" id="user-area"></div>
   </aside>
 
   <main class="chat">

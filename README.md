@@ -4,6 +4,20 @@ A multi-provider AI chat app with **persistent conversations** and **per-message
 
 Supported providers: **OpenAI, Claude (Anthropic), Gemini (Google), Grok (xAI), DeepSeek** — plus **Auto** (server default) and **Compare** (all five at once).
 
+Users sign in with **Google**, and every user has their own private conversations.
+
+## Sign in with Google (per-user conversations)
+
+The frontend uses [Google Identity Services](https://developers.google.com/identity/gsi/web) to get an ID token, which the backend verifies (`google-auth`) against your `GOOGLE_CLIENT_ID`. On first sign-in a `users` row is created; a random session token is stored in a `sessions` table and set as an HttpOnly cookie (30 days). Every conversation belongs to a user — all conversation endpoints require a session and only return that user's data (anything else is a 404).
+
+**Setup:**
+
+1. In [Google Cloud Console](https://console.cloud.google.com/apis/credentials) create an **OAuth client ID** of type *Web application*.
+2. Add your origins to **Authorized JavaScript origins** — e.g. `http://localhost:8000` and your Render URL (`https://your-app.onrender.com`).
+3. Set the `GOOGLE_CLIENT_ID` env var to the client ID. No client secret is needed (ID-token flow only).
+
+Until `GOOGLE_CLIENT_ID` is set, the sign-in screen explains that Google sign-in isn't configured.
+
 ## How it works
 
 ### Switching providers inside a conversation
@@ -33,7 +47,9 @@ Before calling a provider, the backend:
 Chat history is stored in **SQLite** and survives page reloads and server restarts. Schema summary:
 
 ```sql
-conversations (id, title, created_at, updated_at)
+users         (id, google_sub UNIQUE, email, name, picture, created_at)
+sessions      (token, user_id → users.id, created_at)
+conversations (id, user_id → users.id, title, created_at, updated_at)
 messages      (id, conversation_id → conversations.id ON DELETE CASCADE,
                role IN ('user','assistant','system'),
                provider,   -- NULL for user messages
@@ -47,6 +63,10 @@ Adding a message bumps the conversation's `updated_at`; the sidebar is ordered b
 
 | Method & path | Purpose |
 |---|---|
+| `GET /auth/config` | Public: the Google client ID for the sign-in button |
+| `POST /auth/google` | `{"credential": "<Google ID token>"}` → verifies, creates user + session cookie |
+| `GET /auth/me` | Current signed-in user (401 otherwise) |
+| `POST /auth/logout` | Revoke the session |
 | `GET /models` | Per-provider default model + selectable model options |
 | `POST /conversations` | Create a conversation (`{"title": "optional"}`) |
 | `GET /conversations` | List conversations, newest activity first |
@@ -54,7 +74,7 @@ Adding a message bumps the conversation's `updated_at`; the sidebar is ordered b
 | `DELETE /conversations/{id}` | Delete a conversation and its messages |
 | `POST /chat` | `{"conversation_id": 1 \| null, "message": "...", "provider": "auto\|openai\|claude\|gemini\|grok\|deepseek\|compare", "model": "optional override", "models": {"provider": "model", ...}}` — omitting `conversation_id` auto-creates a conversation; `models` applies per provider in compare mode |
 
-Errors: `404` for unknown `conversation_id`, `400` for an invalid `provider` or empty `message`, `502` when a single-provider call fails.
+All conversation and chat endpoints require a signed-in session (`401` otherwise). Errors: `404` for unknown or not-owned `conversation_id`, `400` for an invalid `provider` or empty `message`, `502` when a single-provider call fails.
 
 ## Running locally
 
@@ -72,6 +92,7 @@ Open http://localhost:8000 — the FastAPI app serves the static frontend from `
 
 | Variable | Default | Purpose |
 |---|---|---|
+| `GOOGLE_CLIENT_ID` | — | OAuth Web client ID for Sign in with Google (required for login) |
 | `DB_PATH` | `./multimind.db` (in `backend/`) | SQLite file location. `DATABASE_URL=sqlite:///path` is also accepted. |
 | `DEFAULT_PROVIDER` | `openai` | Provider used when the user picks **Auto**. |
 | `OPENAI_API_KEY` | — | OpenAI |
@@ -89,14 +110,13 @@ Settings (also codified in `render.yaml`):
 
 - **Build command:** `pip install -r backend/requirements.txt`
 - **Start command:** `cd backend && uvicorn app:app --host 0.0.0.0 --port $PORT`
-- **Env vars:** the provider API keys above, plus optionally `DEFAULT_PROVIDER` and `DB_PATH`.
+- **Env vars:** `GOOGLE_CLIENT_ID` and the provider API keys above, plus optionally `DEFAULT_PROVIDER` and `DB_PATH`. Remember to add the Render URL to the OAuth client's authorized JavaScript origins.
 
 > ⚠️ **Ephemeral storage:** Render free instances have ephemeral disks, so the SQLite database may reset on every redeploy or restart. That's acceptable for this MVP; for production, migrate to PostgreSQL (or attach a Render persistent disk and point `DB_PATH` at it).
 
 ## Future improvements
 
 - PostgreSQL instead of SQLite
-- Authentication and per-user conversations
 - Token usage and cost tracking
 - Streaming responses
 - Context summarization for long conversations (currently only the last 20 messages are sent)

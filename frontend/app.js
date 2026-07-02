@@ -25,10 +25,16 @@ const menuBtn = document.getElementById('menu-btn');
 const sidebar = document.getElementById('sidebar');
 const backdrop = document.getElementById('backdrop');
 
+const authOverlay = document.getElementById('auth-overlay');
+const authError = document.getElementById('auth-error');
+const userArea = document.getElementById('user-area');
+
 let currentConversationId = null;
 let sending = false;
 let modelCatalog = {};            // provider -> {label, default, models[]}
 let selectedModels = {};          // provider -> chosen model (persisted)
+let currentUser = null;
+let googleButtonReady = false;
 
 function relativeTime(isoString) {
   const seconds = (Date.now() - new Date(isoString).getTime()) / 1000;
@@ -44,6 +50,110 @@ function relativeTime(isoString) {
 
 function providerLabel(provider) {
   return PROVIDER_LABELS[provider] || provider;
+}
+
+// ---------- Auth ----------
+
+function showAuthOverlay() {
+  currentUser = null;
+  authOverlay.classList.remove('hidden');
+  setupGoogleButton();
+}
+
+function hideAuthOverlay() {
+  authOverlay.classList.add('hidden');
+  authError.textContent = '';
+}
+
+function isUnauthorized(error) {
+  return error && error.status === 401;
+}
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = true;
+    script.onload = resolve;
+    script.onerror = () => reject(new Error('Failed to load ' + src));
+    document.head.appendChild(script);
+  });
+}
+
+async function setupGoogleButton() {
+  if (googleButtonReady) return;
+  try {
+    const config = await getAuthConfig();
+    if (!config.google_client_id) {
+      authError.textContent = 'Google sign-in is not configured on the server (set GOOGLE_CLIENT_ID).';
+      return;
+    }
+    await loadScript('https://accounts.google.com/gsi/client');
+    google.accounts.id.initialize({
+      client_id: config.google_client_id,
+      callback: onGoogleCredential,
+    });
+    google.accounts.id.renderButton(document.getElementById('google-btn'), {
+      theme: 'filled_black',
+      size: 'large',
+      shape: 'pill',
+      width: 280,
+    });
+    googleButtonReady = true;
+  } catch (error) {
+    authError.textContent = error.message;
+  }
+}
+
+async function onGoogleCredential(response) {
+  try {
+    const result = await loginWithGoogle(response.credential);
+    signIn(result.user);
+  } catch (error) {
+    authError.textContent = error.message;
+  }
+}
+
+async function signIn(user) {
+  currentUser = user;
+  hideAuthOverlay();
+  renderUserArea();
+  await bootData();
+}
+
+function renderUserArea() {
+  userArea.innerHTML = '';
+  if (!currentUser) return;
+  const chip = document.createElement('div');
+  chip.className = 'user-chip';
+  if (currentUser.picture) {
+    const img = document.createElement('img');
+    img.src = currentUser.picture;
+    img.alt = '';
+    img.referrerPolicy = 'no-referrer';
+    chip.appendChild(img);
+  }
+  const name = document.createElement('span');
+  name.className = 'user-name';
+  name.textContent = currentUser.name || currentUser.email || 'Signed in';
+  chip.appendChild(name);
+
+  const signOutBtn = document.createElement('button');
+  signOutBtn.type = 'button';
+  signOutBtn.className = 'signout-btn';
+  signOutBtn.textContent = 'Sign out';
+  signOutBtn.addEventListener('click', async () => {
+    try { await logout(); } catch { /* session already gone */ }
+    localStorage.removeItem(STORAGE_KEY);
+    currentConversationId = null;
+    conversationListEl.innerHTML = '';
+    showEmptyState();
+    renderUserArea();
+    closeDrawer();
+    showAuthOverlay();
+  });
+
+  userArea.append(chip, signOutBtn);
 }
 
 // ---------- Mobile drawer ----------
@@ -108,7 +218,13 @@ modelSelect.addEventListener('change', () => {
 // ---------- Sidebar ----------
 
 async function refreshSidebar() {
-  const conversations = await getConversations();
+  let conversations;
+  try {
+    conversations = await getConversations();
+  } catch (error) {
+    if (isUnauthorized(error)) showAuthOverlay();
+    return;
+  }
   conversationListEl.innerHTML = '';
   for (const conversation of conversations) {
     const li = document.createElement('li');
@@ -252,7 +368,11 @@ async function openConversation(conversationId) {
       }
     }
     refreshSidebar();
-  } catch {
+  } catch (error) {
+    if (isUnauthorized(error)) {
+      showAuthOverlay();
+      return;
+    }
     // Stale/deleted conversation id — fall back to a fresh chat.
     startNewChat();
   }
@@ -325,7 +445,11 @@ async function handleSend(event) {
     refreshSidebar();
   } catch (error) {
     spinner.remove();
-    appendErrorCard(provider === 'auto' ? 'auto' : provider, error.message);
+    if (isUnauthorized(error)) {
+      showAuthOverlay();
+    } else {
+      appendErrorCard(provider === 'auto' ? 'auto' : provider, error.message);
+    }
   } finally {
     setSending(false);
     messageInput.focus();
@@ -348,7 +472,7 @@ messageInput.addEventListener('input', () => {
   messageInput.style.height = Math.min(messageInput.scrollHeight, 160) + 'px';
 });
 
-(async function init() {
+async function bootData() {
   loadSelectedModels();
   try {
     const catalog = await getModels();
@@ -364,5 +488,15 @@ messageInput.addEventListener('input', () => {
     await openConversation(Number(savedId));
   } else {
     showEmptyState();
+  }
+}
+
+(async function init() {
+  try {
+    const me = await getMe();
+    await signIn(me.user);
+  } catch {
+    showEmptyState();
+    showAuthOverlay();
   }
 })();

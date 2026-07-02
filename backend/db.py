@@ -1,6 +1,7 @@
 """SQLite persistence layer for MultiMind conversations and messages."""
 
 import os
+import secrets
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -11,8 +12,24 @@ VALID_ROLES = ("user", "assistant", "system")
 VALID_PROVIDERS = ("openai", "claude", "gemini", "grok", "deepseek", "compare")
 
 _SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    google_sub  TEXT NOT NULL UNIQUE,
+    email       TEXT,
+    name        TEXT,
+    picture     TEXT,
+    created_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+    token       TEXT PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at  TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS conversations (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER REFERENCES users(id) ON DELETE CASCADE,
     title       TEXT,
     created_at  TEXT NOT NULL,
     updated_at  TEXT NOT NULL
@@ -60,37 +77,102 @@ def get_connection():
 def init_db() -> None:
     with get_connection() as conn:
         conn.executescript(_SCHEMA)
+        # Migrate databases created before per-user conversations existed.
+        columns = {r["name"] for r in conn.execute("PRAGMA table_info(conversations)")}
+        if "user_id" not in columns:
+            conn.execute(
+                "ALTER TABLE conversations ADD COLUMN user_id INTEGER REFERENCES users(id)"
+            )
 
 
-def create_conversation(title: str | None = None) -> dict:
+# ---------- Users & sessions ----------
+
+
+def upsert_user(google_sub: str, email: str | None, name: str | None, picture: str | None) -> dict:
+    now = _now()
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO users (google_sub, email, name, picture, created_at)"
+            " VALUES (?, ?, ?, ?, ?)"
+            " ON CONFLICT(google_sub) DO UPDATE SET email=excluded.email,"
+            " name=excluded.name, picture=excluded.picture",
+            (google_sub, email, name, picture, now),
+        )
+        row = conn.execute(
+            "SELECT id, google_sub, email, name, picture FROM users WHERE google_sub = ?",
+            (google_sub,),
+        ).fetchone()
+        return dict(row)
+
+
+def create_session(user_id: int) -> str:
+    token = secrets.token_urlsafe(32)
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)",
+            (token, user_id, _now()),
+        )
+    return token
+
+
+def get_session_user(token: str, max_age_days: int = 30) -> dict | None:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT u.id, u.google_sub, u.email, u.name, u.picture, s.created_at AS session_created"
+            " FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?",
+            (token,),
+        ).fetchone()
+    if row is None:
+        return None
+    created = datetime.fromisoformat(row["session_created"])
+    if (datetime.now(timezone.utc) - created).days >= max_age_days:
+        delete_session(token)
+        return None
+    user = dict(row)
+    user.pop("session_created")
+    return user
+
+
+def delete_session(token: str) -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+
+
+# ---------- Conversations & messages ----------
+
+
+def create_conversation(title: str | None = None, user_id: int | None = None) -> dict:
     now = _now()
     with get_connection() as conn:
         cur = conn.execute(
-            "INSERT INTO conversations (title, created_at, updated_at) VALUES (?, ?, ?)",
-            (title, now, now),
+            "INSERT INTO conversations (user_id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
+            (user_id, title, now, now),
         )
         return {"id": cur.lastrowid, "title": title, "created_at": now, "updated_at": now}
 
 
-def get_conversations() -> list[dict]:
+def get_conversations(user_id: int) -> list[dict]:
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT id, title, created_at, updated_at FROM conversations ORDER BY updated_at DESC"
+            "SELECT id, title, created_at, updated_at FROM conversations"
+            " WHERE user_id = ? ORDER BY updated_at DESC",
+            (user_id,),
         ).fetchall()
         return [dict(r) for r in rows]
 
 
-def get_conversation(conversation_id: int) -> dict | None:
+def get_conversation(conversation_id: int, user_id: int) -> dict | None:
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT id, title, created_at, updated_at FROM conversations WHERE id = ?",
-            (conversation_id,),
+            "SELECT id, title, created_at, updated_at FROM conversations"
+            " WHERE id = ? AND user_id = ?",
+            (conversation_id, user_id),
         ).fetchone()
         return dict(row) if row else None
 
 
-def get_conversation_with_messages(conversation_id: int) -> dict | None:
-    conversation = get_conversation(conversation_id)
+def get_conversation_with_messages(conversation_id: int, user_id: int) -> dict | None:
+    conversation = get_conversation(conversation_id, user_id)
     if conversation is None:
         return None
     with get_connection() as conn:
@@ -152,7 +234,10 @@ def touch_conversation(conversation_id: int) -> None:
         )
 
 
-def delete_conversation(conversation_id: int) -> bool:
+def delete_conversation(conversation_id: int, user_id: int) -> bool:
     with get_connection() as conn:
-        cur = conn.execute("DELETE FROM conversations WHERE id = ?", (conversation_id,))
+        cur = conn.execute(
+            "DELETE FROM conversations WHERE id = ? AND user_id = ?",
+            (conversation_id, user_id),
+        )
         return cur.rowcount > 0

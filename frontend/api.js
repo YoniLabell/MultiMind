@@ -12,9 +12,32 @@ async function request(path, options = {}) {
     } catch {
       detail = response.statusText;
     }
-    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+    const error = new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+    error.status = response.status;
+    throw error;
   }
   return response.json();
+}
+
+// ---------- Auth ----------
+
+function getAuthConfig() {
+  return request('/auth/config');
+}
+
+function getMe() {
+  return request('/auth/me');
+}
+
+function loginWithGoogle(credential) {
+  return request('/auth/google', {
+    method: 'POST',
+    body: JSON.stringify({ credential }),
+  });
+}
+
+function logout() {
+  return request('/auth/logout', { method: 'POST' });
 }
 
 function createConversation(title) {

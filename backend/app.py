@@ -4,10 +4,11 @@ import asyncio
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import auth
 import db
 import providers
 from providers import PROVIDER_NAMES, ProviderError
@@ -24,6 +25,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="MultiMind", lifespan=lifespan)
+app.include_router(auth.router)
 
 
 class CreateConversationRequest(BaseModel):
@@ -59,33 +61,33 @@ def list_models():
 
 
 @app.post("/conversations")
-def create_conversation(request: CreateConversationRequest):
-    conversation = db.create_conversation(request.title or None)
+def create_conversation(request: CreateConversationRequest, user: dict = Depends(auth.require_user)):
+    conversation = db.create_conversation(request.title or None, user["id"])
     return {"conversation_id": conversation["id"], "title": conversation["title"]}
 
 
 @app.get("/conversations")
-def list_conversations():
-    return db.get_conversations()
+def list_conversations(user: dict = Depends(auth.require_user)):
+    return db.get_conversations(user["id"])
 
 
 @app.get("/conversations/{conversation_id}")
-def get_conversation(conversation_id: int):
-    conversation = db.get_conversation_with_messages(conversation_id)
+def get_conversation(conversation_id: int, user: dict = Depends(auth.require_user)):
+    conversation = db.get_conversation_with_messages(conversation_id, user["id"])
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return conversation
 
 
 @app.delete("/conversations/{conversation_id}")
-def delete_conversation(conversation_id: int):
-    if not db.delete_conversation(conversation_id):
+def delete_conversation(conversation_id: int, user: dict = Depends(auth.require_user)):
+    if not db.delete_conversation(conversation_id, user["id"]):
         raise HTTPException(status_code=404, detail="Conversation not found")
     return {"deleted": conversation_id}
 
 
 @app.post("/chat")
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, user: dict = Depends(auth.require_user)):
     message = request.message.strip()
     if not message:
         raise HTTPException(status_code=400, detail="Message must not be empty")
@@ -97,10 +99,10 @@ async def chat(request: ChatRequest):
         )
 
     if request.conversation_id is None:
-        conversation_id = db.create_conversation(_auto_title(message))["id"]
+        conversation_id = db.create_conversation(_auto_title(message), user["id"])["id"]
     else:
         conversation_id = request.conversation_id
-        if db.get_conversation(conversation_id) is None:
+        if db.get_conversation(conversation_id, user["id"]) is None:
             raise HTTPException(status_code=404, detail="Conversation not found")
 
     db.add_message(conversation_id, "user", message)
