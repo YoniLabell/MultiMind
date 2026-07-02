@@ -34,6 +34,10 @@ class ChatRequest(BaseModel):
     conversation_id: int | None = None
     message: str = ""
     provider: str = "auto"
+    # Optional model override for single-provider requests.
+    model: str | None = None
+    # Optional per-provider model map used by compare mode, e.g. {"openai": "gpt-4.1"}.
+    models: dict[str, str] | None = None
 
 
 def _auto_title(message: str) -> str:
@@ -44,6 +48,14 @@ def _auto_title(message: str) -> str:
 def _default_provider() -> str:
     provider = os.environ.get("DEFAULT_PROVIDER", "openai")
     return provider if provider in PROVIDER_NAMES else "openai"
+
+
+@app.get("/models")
+def list_models():
+    return {
+        "default_provider": _default_provider(),
+        "providers": providers.model_catalog(),
+    }
 
 
 @app.post("/conversations")
@@ -95,11 +107,12 @@ async def chat(request: ChatRequest):
     history = providers.format_history(db.get_last_messages(conversation_id, limit=20))
 
     if request.provider == "compare":
-        return await _chat_compare(conversation_id, history)
+        return await _chat_compare(conversation_id, history, request.models or {})
 
     provider = _default_provider() if request.provider == "auto" else request.provider
+    model = request.model if request.provider != "auto" else None
     try:
-        answer = await providers.call_provider(provider, history)
+        answer = await providers.call_provider(provider, history, model)
     except ProviderError as exc:
         raise HTTPException(status_code=502, detail={"provider": provider, "error": str(exc)})
 
@@ -115,9 +128,9 @@ async def chat(request: ChatRequest):
     }
 
 
-async def _chat_compare(conversation_id: int, history: list[dict]):
+async def _chat_compare(conversation_id: int, history: list[dict], models: dict[str, str]):
     results = await asyncio.gather(
-        *(providers.call_provider(name, history) for name in PROVIDER_NAMES),
+        *(providers.call_provider(name, history, models.get(name)) for name in PROVIDER_NAMES),
         return_exceptions=True,
     )
     answers = {}

@@ -8,7 +8,7 @@ Supported providers: **OpenAI, Claude (Anthropic), Gemini (Google), Grok (xAI), 
 
 ### Switching providers inside a conversation
 
-Every message you send carries a `provider` field. The backend loads the conversation's shared history from SQLite, formats it for the chosen provider, and calls it. Each **assistant** message records which `provider` and `model` actually produced it (e.g. `Assistant · OpenAI · gpt-4.1-mini`); **user** messages store `provider = NULL`.
+Every message you send carries a `provider` field and an optional `model` override. The backend loads the conversation's shared history from SQLite, formats it for the chosen provider, and calls it. Each provider offers a curated list of models (served by `GET /models`); the UI shows a model picker next to the provider picker and remembers your choice per provider. In compare mode, each provider uses its remembered model (sent as a `models` map). Each **assistant** message records which `provider` and `model` actually produced it (e.g. `Assistant · OpenAI · gpt-4.1-mini`); **user** messages store `provider = NULL`.
 
 Before calling a provider, the backend:
 
@@ -47,11 +47,12 @@ Adding a message bumps the conversation's `updated_at`; the sidebar is ordered b
 
 | Method & path | Purpose |
 |---|---|
+| `GET /models` | Per-provider default model + selectable model options |
 | `POST /conversations` | Create a conversation (`{"title": "optional"}`) |
 | `GET /conversations` | List conversations, newest activity first |
 | `GET /conversations/{id}` | Conversation + all messages (ascending) |
 | `DELETE /conversations/{id}` | Delete a conversation and its messages |
-| `POST /chat` | `{"conversation_id": 1 \| null, "message": "...", "provider": "auto\|openai\|claude\|gemini\|grok\|deepseek\|compare"}` — omitting `conversation_id` auto-creates a conversation |
+| `POST /chat` | `{"conversation_id": 1 \| null, "message": "...", "provider": "auto\|openai\|claude\|gemini\|grok\|deepseek\|compare", "model": "optional override", "models": {"provider": "model", ...}}` — omitting `conversation_id` auto-creates a conversation; `models` applies per provider in compare mode |
 
 Errors: `404` for unknown `conversation_id`, `400` for an invalid `provider` or empty `message`, `502` when a single-provider call fails.
 

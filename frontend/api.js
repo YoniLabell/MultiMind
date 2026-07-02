@@ -32,10 +32,20 @@ function getConversation(conversationId) {
   return request(`/conversations/${conversationId}`);
 }
 
-function sendMessage(conversationId, message, provider) {
+function getModels() {
+  return request('/models');
+}
+
+function sendMessage(conversationId, message, provider, model, models) {
   return request('/chat', {
     method: 'POST',
-    body: JSON.stringify({ conversation_id: conversationId, message, provider }),
+    body: JSON.stringify({
+      conversation_id: conversationId,
+      message,
+      provider,
+      model: model || null,
+      models: models || null,
+    }),
   });
 }
 

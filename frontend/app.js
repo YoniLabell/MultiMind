@@ -1,4 +1,4 @@
-// MultiMind chat UI: conversation sidebar + per-message provider switching.
+// MultiMind chat UI: conversation sidebar, per-message provider + model switching.
 
 const PROVIDER_LABELS = {
   openai: 'OpenAI',
@@ -9,6 +9,7 @@ const PROVIDER_LABELS = {
 };
 
 const STORAGE_KEY = 'multimind:conversation-id';
+const MODELS_KEY = 'multimind:models';
 
 const conversationListEl = document.getElementById('conversation-list');
 const messagesEl = document.getElementById('messages');
@@ -16,11 +17,18 @@ const emptyStateEl = document.getElementById('empty-state');
 const chatForm = document.getElementById('chat-form');
 const messageInput = document.getElementById('message-input');
 const providerSelect = document.getElementById('provider-select');
+const modelSelect = document.getElementById('model-select');
 const sendBtn = document.getElementById('send-btn');
 const newChatBtn = document.getElementById('new-chat-btn');
+const topbarNewBtn = document.getElementById('topbar-new-btn');
+const menuBtn = document.getElementById('menu-btn');
+const sidebar = document.getElementById('sidebar');
+const backdrop = document.getElementById('backdrop');
 
 let currentConversationId = null;
 let sending = false;
+let modelCatalog = {};            // provider -> {label, default, models[]}
+let selectedModels = {};          // provider -> chosen model (persisted)
 
 function relativeTime(isoString) {
   const seconds = (Date.now() - new Date(isoString).getTime()) / 1000;
@@ -37,6 +45,65 @@ function relativeTime(isoString) {
 function providerLabel(provider) {
   return PROVIDER_LABELS[provider] || provider;
 }
+
+// ---------- Mobile drawer ----------
+
+function openDrawer() {
+  sidebar.classList.add('open');
+  backdrop.classList.add('visible');
+}
+
+function closeDrawer() {
+  sidebar.classList.remove('open');
+  backdrop.classList.remove('visible');
+}
+
+menuBtn.addEventListener('click', openDrawer);
+backdrop.addEventListener('click', closeDrawer);
+
+// ---------- Model selection ----------
+
+function loadSelectedModels() {
+  try {
+    selectedModels = JSON.parse(localStorage.getItem(MODELS_KEY)) || {};
+  } catch {
+    selectedModels = {};
+  }
+}
+
+function saveSelectedModels() {
+  localStorage.setItem(MODELS_KEY, JSON.stringify(selectedModels));
+}
+
+function modelFor(provider) {
+  const info = modelCatalog[provider];
+  if (!info) return null;
+  const chosen = selectedModels[provider];
+  return chosen && info.models.includes(chosen) ? chosen : info.default;
+}
+
+function updateModelSelect() {
+  const provider = providerSelect.value;
+  modelSelect.innerHTML = '';
+  if (provider === 'auto' || provider === 'compare' || !modelCatalog[provider]) {
+    modelSelect.classList.add('hidden');
+    return;
+  }
+  modelSelect.classList.remove('hidden');
+  for (const model of modelCatalog[provider].models) {
+    const option = document.createElement('option');
+    option.value = model;
+    option.textContent = model;
+    modelSelect.appendChild(option);
+  }
+  modelSelect.value = modelFor(provider);
+}
+
+providerSelect.addEventListener('change', updateModelSelect);
+modelSelect.addEventListener('change', () => {
+  selectedModels[providerSelect.value] = modelSelect.value;
+  saveSelectedModels();
+});
 
 // ---------- Sidebar ----------
 
@@ -57,7 +124,10 @@ async function refreshSidebar() {
     time.className = 'conversation-time';
     time.textContent = relativeTime(conversation.updated_at);
     main.append(title, time);
-    main.addEventListener('click', () => openConversation(conversation.id));
+    main.addEventListener('click', () => {
+      closeDrawer();
+      openConversation(conversation.id);
+    });
 
     const del = document.createElement('button');
     del.type = 'button';
@@ -106,7 +176,16 @@ function appendAssistantMessage(content, provider, model) {
   div.className = 'message assistant';
   const meta = document.createElement('div');
   meta.className = 'meta';
-  meta.textContent = `Assistant · ${providerLabel(provider)}${model ? ' · ' + model : ''}`;
+  const badge = document.createElement('span');
+  badge.className = `badge ${provider || ''}`;
+  badge.textContent = providerLabel(provider);
+  meta.appendChild(badge);
+  if (model) {
+    const modelEl = document.createElement('span');
+    modelEl.className = 'model-name';
+    modelEl.textContent = model;
+    meta.appendChild(modelEl);
+  }
   const body = document.createElement('div');
   body.className = 'bubble';
   body.textContent = content;
@@ -121,7 +200,13 @@ function appendErrorCard(provider, errorText) {
   div.className = 'message assistant error';
   const meta = document.createElement('div');
   meta.className = 'meta';
-  meta.textContent = `${providerLabel(provider)} · failed`;
+  const badge = document.createElement('span');
+  badge.className = `badge ${provider || ''}`;
+  badge.textContent = providerLabel(provider);
+  const failed = document.createElement('span');
+  failed.className = 'model-name';
+  failed.textContent = 'failed';
+  meta.append(badge, failed);
   const body = document.createElement('div');
   body.className = 'bubble';
   body.textContent = errorText;
@@ -178,6 +263,7 @@ function startNewChat() {
   localStorage.removeItem(STORAGE_KEY);
   showEmptyState();
   refreshSidebar();
+  closeDrawer();
 }
 
 // ---------- Sending ----------
@@ -186,7 +272,16 @@ function setSending(isSending) {
   sending = isSending;
   sendBtn.disabled = isSending;
   providerSelect.disabled = isSending;
-  sendBtn.textContent = isSending ? '…' : 'Send';
+  modelSelect.disabled = isSending;
+}
+
+function compareModelsMap() {
+  const map = {};
+  for (const provider of Object.keys(modelCatalog)) {
+    const model = modelFor(provider);
+    if (model) map[provider] = model;
+  }
+  return map;
 }
 
 async function handleSend(event) {
@@ -194,17 +289,21 @@ async function handleSend(event) {
   const message = messageInput.value.trim();
   if (!message || sending) return;
   const provider = providerSelect.value;
+  const isConcrete = provider !== 'auto' && provider !== 'compare';
+  const model = isConcrete ? modelFor(provider) : null;
+  const models = provider === 'compare' ? compareModelsMap() : null;
 
   emptyStateEl.style.display = 'none';
   appendUserMessage(message);
   messageInput.value = '';
+  messageInput.style.height = 'auto';
   setSending(true);
 
-  const spinnerLabel = provider === 'compare' ? 'Asking all providers…' : 'Thinking…';
+  const spinnerLabel = provider === 'compare' ? 'Asking all five providers…' : 'Thinking…';
   const spinner = appendSpinner(spinnerLabel);
 
   try {
-    const result = await sendMessage(currentConversationId, message, provider);
+    const result = await sendMessage(currentConversationId, message, provider, model, models);
     spinner.remove();
 
     currentConversationId = result.conversation_id;
@@ -237,14 +336,28 @@ async function handleSend(event) {
 
 chatForm.addEventListener('submit', handleSend);
 newChatBtn.addEventListener('click', startNewChat);
+topbarNewBtn.addEventListener('click', startNewChat);
 messageInput.addEventListener('keydown', (event) => {
   if (event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault();
     chatForm.requestSubmit();
   }
 });
+messageInput.addEventListener('input', () => {
+  messageInput.style.height = 'auto';
+  messageInput.style.height = Math.min(messageInput.scrollHeight, 160) + 'px';
+});
 
 (async function init() {
+  loadSelectedModels();
+  try {
+    const catalog = await getModels();
+    modelCatalog = catalog.providers;
+  } catch {
+    modelCatalog = {};
+  }
+  updateModelSelect();
+
   await refreshSidebar();
   const savedId = localStorage.getItem(STORAGE_KEY);
   if (savedId) {
