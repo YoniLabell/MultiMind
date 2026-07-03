@@ -10,21 +10,22 @@ from openai import AsyncOpenAI
 PROVIDER_NAMES = ["openai", "claude", "gemini", "grok", "deepseek"]
 
 DEFAULT_MODELS = {
-    "openai": "gpt-4.1-mini",
+    "openai": "gpt-5.4-mini",
     "claude": "claude-sonnet-4-6",
     "gemini": "gemini-2.5-flash",
-    "grok": "grok-3-mini",
-    "deepseek": "deepseek-chat",
+    "grok": "grok-4.3",
+    "deepseek": "deepseek-v3",
 }
 
 # Curated per-provider model choices offered in the UI. The default (env
 # override or DEFAULT_MODELS) is always included even if not listed here.
+# Note: Anthropic model ids use dashes (claude-opus-4-8, not claude-opus-4.8).
 MODEL_OPTIONS = {
-    "openai": ["gpt-4.1-mini", "gpt-4.1", "gpt-4o", "gpt-4o-mini"],
-    "claude": ["claude-sonnet-4-6", "claude-opus-4-8", "claude-haiku-4-5"],
-    "gemini": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"],
-    "grok": ["grok-3-mini", "grok-3", "grok-4"],
-    "deepseek": ["deepseek-chat", "deepseek-reasoner"],
+    "openai": ["gpt-5.5", "gpt-5.4-mini", "gpt-5.4-nano"],
+    "claude": ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"],
+    "gemini": ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
+    "grok": ["grok-4.3"],
+    "deepseek": ["deepseek-v3", "deepseek-r1"],
 }
 
 PROVIDER_LABELS = {

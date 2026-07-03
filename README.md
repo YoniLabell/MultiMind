@@ -98,7 +98,7 @@ Open http://localhost:8000 — the FastAPI app serves the static frontend from `
 | `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) | — | Gemini |
 | `XAI_API_KEY` | — | Grok |
 | `DEEPSEEK_API_KEY` | — | DeepSeek |
-| `OPENAI_MODEL` / `CLAUDE_MODEL` / `GEMINI_MODEL` / `GROK_MODEL` / `DEEPSEEK_MODEL` | `gpt-4.1-mini` / `claude-sonnet-4-6` / `gemini-2.5-flash` / `grok-3-mini` / `deepseek-chat` | Model overrides per provider |
+| `OPENAI_MODEL` / `CLAUDE_MODEL` / `GEMINI_MODEL` / `GROK_MODEL` / `DEEPSEEK_MODEL` | `gpt-5.4-mini` / `claude-sonnet-4-6` / `gemini-2.5-flash` / `grok-4.3` / `deepseek-v3` | Default model per provider (also selectable in the UI) |
 
 A provider whose key is missing simply fails with a clear error (and shows an error card in compare mode) — the rest keep working.
 
