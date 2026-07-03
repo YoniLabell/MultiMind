@@ -27,6 +27,10 @@ const backdrop = document.getElementById('backdrop');
 
 const authOverlay = document.getElementById('auth-overlay');
 const authError = document.getElementById('auth-error');
+const authForm = document.getElementById('auth-form');
+const authNameInput = document.getElementById('auth-name');
+const authPasswordInput = document.getElementById('auth-password');
+const registerBtn = document.getElementById('register-btn');
 const userArea = document.getElementById('user-area');
 
 let currentConversationId = null;
@@ -34,7 +38,6 @@ let sending = false;
 let modelCatalog = {};            // provider -> {label, default, models[]}
 let selectedModels = {};          // provider -> chosen model (persisted)
 let currentUser = null;
-let googleButtonReady = false;
 
 function relativeTime(isoString) {
   const seconds = (Date.now() - new Date(isoString).getTime()) / 1000;
@@ -57,62 +60,38 @@ function providerLabel(provider) {
 function showAuthOverlay() {
   currentUser = null;
   authOverlay.classList.remove('hidden');
-  setupGoogleButton();
+  authNameInput.focus();
 }
 
 function hideAuthOverlay() {
   authOverlay.classList.add('hidden');
   authError.textContent = '';
+  authForm.reset();
 }
 
 function isUnauthorized(error) {
   return error && error.status === 401;
 }
 
-function loadScript(src) {
-  return new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    script.src = src;
-    script.async = true;
-    script.onload = resolve;
-    script.onerror = () => reject(new Error('Failed to load ' + src));
-    document.head.appendChild(script);
-  });
-}
-
-async function setupGoogleButton() {
-  if (googleButtonReady) return;
+async function submitAuth(apiCall) {
+  authError.textContent = '';
   try {
-    const config = await getAuthConfig();
-    if (!config.google_client_id) {
-      authError.textContent = 'Google sign-in is not configured on the server (set GOOGLE_CLIENT_ID).';
-      return;
-    }
-    await loadScript('https://accounts.google.com/gsi/client');
-    google.accounts.id.initialize({
-      client_id: config.google_client_id,
-      callback: onGoogleCredential,
-    });
-    google.accounts.id.renderButton(document.getElementById('google-btn'), {
-      theme: 'filled_black',
-      size: 'large',
-      shape: 'pill',
-      width: 280,
-    });
-    googleButtonReady = true;
+    const result = await apiCall(authNameInput.value.trim(), authPasswordInput.value);
+    await signIn(result.user);
   } catch (error) {
     authError.textContent = error.message;
   }
 }
 
-async function onGoogleCredential(response) {
-  try {
-    const result = await loginWithGoogle(response.credential);
-    signIn(result.user);
-  } catch (error) {
-    authError.textContent = error.message;
-  }
-}
+authForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  submitAuth(login);
+});
+
+registerBtn.addEventListener('click', () => {
+  if (!authForm.reportValidity()) return;
+  submitAuth(registerAccount);
+});
 
 async function signIn(user) {
   currentUser = user;
@@ -126,17 +105,13 @@ function renderUserArea() {
   if (!currentUser) return;
   const chip = document.createElement('div');
   chip.className = 'user-chip';
-  if (currentUser.picture) {
-    const img = document.createElement('img');
-    img.src = currentUser.picture;
-    img.alt = '';
-    img.referrerPolicy = 'no-referrer';
-    chip.appendChild(img);
-  }
+  const avatar = document.createElement('span');
+  avatar.className = 'avatar';
+  avatar.textContent = (currentUser.name || '?').charAt(0).toUpperCase();
   const name = document.createElement('span');
   name.className = 'user-name';
-  name.textContent = currentUser.name || currentUser.email || 'Signed in';
-  chip.appendChild(name);
+  name.textContent = currentUser.name || 'Signed in';
+  chip.append(avatar, name);
 
   const signOutBtn = document.createElement('button');
   signOutBtn.type = 'button';

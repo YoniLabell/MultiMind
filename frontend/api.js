@@ -21,18 +21,21 @@ async function request(path, options = {}) {
 
 // ---------- Auth ----------
 
-function getAuthConfig() {
-  return request('/auth/config');
-}
-
 function getMe() {
   return request('/auth/me');
 }
 
-function loginWithGoogle(credential) {
-  return request('/auth/google', {
+function registerAccount(name, password) {
+  return request('/auth/register', {
     method: 'POST',
-    body: JSON.stringify({ credential }),
+    body: JSON.stringify({ name, password }),
+  });
+}
+
+function login(name, password) {
+  return request('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ name, password }),
   });
 }
 

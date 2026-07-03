@@ -12,8 +12,15 @@
   <div id="auth-overlay" class="auth-overlay hidden">
     <div class="auth-card">
       <div class="brand brand-lg">Multi<em>Mind</em></div>
-      <p class="auth-tagline">One conversation, five minds.<br>Sign in to keep your chats — only you can see them.</p>
-      <div id="google-btn" class="google-btn"></div>
+      <p class="auth-tagline">One conversation, five minds.<br>Sign in with your name and password — only you can see your chats.</p>
+      <form id="auth-form" class="auth-form">
+        <input id="auth-name" type="text" placeholder="Your name" autocomplete="username"
+               required minlength="2" maxlength="32">
+        <input id="auth-password" type="password" placeholder="Password" autocomplete="current-password"
+               required minlength="6">
+        <button type="submit" id="login-btn" class="auth-primary">Sign in</button>
+        <button type="button" id="register-btn" class="auth-secondary">Create account</button>
+      </form>
       <p id="auth-error" class="auth-error"></p>
     </div>
   </div>

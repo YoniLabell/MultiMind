@@ -13,12 +13,10 @@ VALID_PROVIDERS = ("openai", "claude", "gemini", "grok", "deepseek", "compare")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    google_sub  TEXT NOT NULL UNIQUE,
-    email       TEXT,
-    name        TEXT,
-    picture     TEXT,
-    created_at  TEXT NOT NULL
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    username      TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    password_hash TEXT NOT NULL,
+    created_at    TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -75,34 +73,58 @@ def get_connection():
 
 
 def init_db() -> None:
-    with get_connection() as conn:
+    # Migration runs on a plain connection (foreign keys off) so the old
+    # Google-auth tables can be dropped cleanly.
+    conn = sqlite3.connect(db_path())
+    conn.row_factory = sqlite3.Row
+    try:
+        # Databases from the earlier Google-sign-in version: accounts can't be
+        # carried over, so reset users/sessions and their conversations.
+        columns = {r["name"] for r in conn.execute("PRAGMA table_info(users)")}
+        if "google_sub" in columns:
+            conn.executescript(
+                "DELETE FROM messages WHERE conversation_id IN"
+                " (SELECT id FROM conversations WHERE user_id IS NOT NULL);"
+                "DELETE FROM conversations WHERE user_id IS NOT NULL;"
+                "DROP TABLE IF EXISTS sessions;"
+                "DROP TABLE IF EXISTS users;"
+            )
         conn.executescript(_SCHEMA)
-        # Migrate databases created before per-user conversations existed.
+        # Databases from before per-user conversations existed.
         columns = {r["name"] for r in conn.execute("PRAGMA table_info(conversations)")}
         if "user_id" not in columns:
             conn.execute(
                 "ALTER TABLE conversations ADD COLUMN user_id INTEGER REFERENCES users(id)"
             )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 # ---------- Users & sessions ----------
 
 
-def upsert_user(google_sub: str, email: str | None, name: str | None, picture: str | None) -> dict:
+def create_user(username: str, password_hash: str) -> dict | None:
+    """Create a user; returns None if the (case-insensitive) name is taken."""
     now = _now()
     with get_connection() as conn:
-        conn.execute(
-            "INSERT INTO users (google_sub, email, name, picture, created_at)"
-            " VALUES (?, ?, ?, ?, ?)"
-            " ON CONFLICT(google_sub) DO UPDATE SET email=excluded.email,"
-            " name=excluded.name, picture=excluded.picture",
-            (google_sub, email, name, picture, now),
-        )
+        try:
+            cur = conn.execute(
+                "INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?)",
+                (username, password_hash, now),
+            )
+        except sqlite3.IntegrityError:
+            return None
+        return {"id": cur.lastrowid, "username": username}
+
+
+def get_user_by_username(username: str) -> dict | None:
+    with get_connection() as conn:
         row = conn.execute(
-            "SELECT id, google_sub, email, name, picture FROM users WHERE google_sub = ?",
-            (google_sub,),
+            "SELECT id, username, password_hash FROM users WHERE username = ?",
+            (username,),
         ).fetchone()
-        return dict(row)
+        return dict(row) if row else None
 
 
 def create_session(user_id: int) -> str:
@@ -118,7 +140,7 @@ def create_session(user_id: int) -> str:
 def get_session_user(token: str, max_age_days: int = 30) -> dict | None:
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT u.id, u.google_sub, u.email, u.name, u.picture, s.created_at AS session_created"
+            "SELECT u.id, u.username, s.created_at AS session_created"
             " FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?",
             (token,),
         ).fetchone()

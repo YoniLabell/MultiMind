@@ -207,11 +207,17 @@ body {
   gap: 8px;
   min-width: 0;
 }
-.user-chip img {
+.avatar {
   width: 30px; height: 30px;
   border-radius: 50%;
-  border: 1px solid var(--border);
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 800;
+  color: #06222b;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
 }
 .user-name {
   font-size: 12.5px;
@@ -267,11 +273,48 @@ body {
   line-height: 1.6;
   margin-bottom: 24px;
 }
-.google-btn {
+.auth-form {
   display: flex;
-  justify-content: center;
-  min-height: 44px;
+  flex-direction: column;
+  gap: 10px;
 }
+
+.auth-form input {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 15px;
+  font-family: inherit;
+}
+.auth-form input::placeholder { color: var(--text-dim); }
+.auth-form input:focus { outline: 2px solid rgba(45, 212, 191, 0.5); border-color: transparent; }
+
+.auth-primary {
+  margin-top: 4px;
+  padding: 12px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #06222b;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+.auth-primary:hover { filter: brightness(1.1); }
+
+.auth-secondary {
+  padding: 11px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: none;
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+.auth-secondary:hover { border-color: var(--accent); color: var(--accent); }
 .auth-error {
   margin-top: 14px;
   font-size: 12.5px;
